@@ -1,0 +1,7 @@
+robin-stocks
+pandas
+pandas_ta
+scikit-learn
+matplotlib
+numpy
+setuptools
