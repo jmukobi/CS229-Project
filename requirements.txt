@@ -5,3 +5,4 @@ scikit-learn
 matplotlib
 numpy
 setuptools
+tqdm

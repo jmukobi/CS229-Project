@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import traceback
 from configuration import username, password
-
+from tqdm import tqdm
 
 # Constants
 SYMBOL = "ETH"
@@ -48,9 +48,16 @@ def get_crypto_historical_data(symbol=SYMBOL, interval=DATA_INTERVAL, span=DATA_
         df = pd.DataFrame(data)
         df['timestamp'] = pd.to_datetime(df['begins_at'])
         df.set_index('timestamp', inplace=True)
-        df['close_price'] = df['close_price'].astype(float)
+        
+        # Convert price columns to numeric, forcing any errors to NaN
+        df['close_price'] = pd.to_numeric(df['close_price'], errors='coerce')
+        df['high_price'] = pd.to_numeric(df['high_price'], errors='coerce')
+        df['low_price'] = pd.to_numeric(df['low_price'], errors='coerce')
+        df['open_price'] = pd.to_numeric(df['open_price'], errors='coerce')
+        df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+
         print(f"Fetched {len(df)} data points for {symbol}")
-        return df
+        return df.dropna()  # Drop rows with NaN values after conversion
     except Exception as e:
         print("Error fetching data:", e)
         return None
@@ -76,35 +83,49 @@ def create_profit_labels(df, profit_margin=PROFIT_MARGIN, future_window=FUTURE_W
     return df
 
 def add_technical_indicators(df):
-    """Calculates technical indicators using pandas_ta."""
-    # Calculate Simple Moving Average (SMA)
+    """Calculates a comprehensive set of technical indicators using pandas_ta."""
+    # Calculate Simple Moving Average (SMA) with multiple lengths
     df['SMA_10'] = ta.sma(df['close_price'], length=10)
+    df['SMA_50'] = ta.sma(df['close_price'], length=50)
     
-    # Calculate Exponential Moving Average (EMA)
+    # Exponential Moving Average (EMA) with multiple lengths
     df['EMA_10'] = ta.ema(df['close_price'], length=10)
+    df['EMA_50'] = ta.ema(df['close_price'], length=50)
     
-    # Calculate Relative Strength Index (RSI)
-    df['RSI'] = ta.rsi(df['close_price'], length=14)
+    # Relative Strength Index (RSI)
+    df['RSI_14'] = ta.rsi(df['close_price'], length=14)
+    df['RSI_28'] = ta.rsi(df['close_price'], length=28)
     
-    # Calculate MACD
+    # MACD and MACD Signal
     macd = ta.macd(df['close_price'])
     df['MACD'] = macd['MACD_12_26_9']
+    df['MACD_Signal'] = macd['MACDs_12_26_9']
     
-    # Calculate Bollinger Bands
+    # Bollinger Bands
     bbands = ta.bbands(df['close_price'], length=20)
+    df['Bollinger_Upper'] = bbands['BBU_20_2.0']
+    df['Bollinger_Lower'] = bbands['BBL_20_2.0']
     
-    # Dynamically extract the columns for Bollinger Bands
-    if bbands is not None:
-        upper_band = [col for col in bbands.columns if 'BBU' in col][0]
-        lower_band = [col for col in bbands.columns if 'BBL' in col][0]
-        df['Bollinger_Upper'] = bbands[upper_band]
-        df['Bollinger_Lower'] = bbands[lower_band]
-    else:
-        print("Bollinger Bands columns not found. Using default values.")
-        df['Bollinger_Upper'] = pd.NA
-        df['Bollinger_Lower'] = pd.NA
+    # Stochastic Oscillator
+    stoch = ta.stoch(df['high_price'], df['low_price'], df['close_price'])
+    df['Stoch'] = stoch['STOCHk_14_3_3']
     
-    # Drop rows with NaN values
+    # Average True Range (ATR)
+    df['ATR_14'] = ta.atr(df['high_price'], df['low_price'], df['close_price'], length=14)
+    
+    # Commodity Channel Index (CCI)
+    df['CCI_20'] = ta.cci(df['high_price'], df['low_price'], df['close_price'], length=20)
+    
+    # Williams %R
+    df['Williams_%R'] = ta.willr(df['high_price'], df['low_price'], df['close_price'], length=14)
+    
+    # On-Balance Volume (OBV)
+    df['OBV'] = ta.obv(df['close_price'], df['volume'])
+    
+    # Momentum (MOM)
+    df['Momentum_10'] = ta.mom(df['close_price'], length=10)
+    
+    # Drop rows with NaN values after adding indicators
     df.dropna(inplace=True)
     
     return df
@@ -117,7 +138,14 @@ def normalize_features(df, feature_cols):
 
 def train_logistic_regression(df):
     """Trains a logistic regression model with class weight adjustment."""
-    feature_cols = ['SMA_10', 'EMA_10', 'RSI', 'MACD', 'Bollinger_Upper', 'Bollinger_Lower']
+    feature_cols = [
+        'SMA_10', 'SMA_50', 'EMA_10', 'EMA_50',
+        'RSI_14', 'RSI_28', 'MACD', 'MACD_Signal',
+        'Bollinger_Upper', 'Bollinger_Lower',
+        'Stoch', 'ATR_14', 'CCI_20', 'Williams_%R',
+        'OBV', 'Momentum_10'
+    ]
+    
     df = df[feature_cols + ['label']].dropna()
 
     # Separate features (X) and labels (y)
@@ -139,9 +167,7 @@ def train_logistic_regression(df):
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
     f1_score_value = f1_score(y_test, y_pred, zero_division=1)
-    #print(f"Accuracy: {accuracy:.2f}")
     print(f"F1 Score: {f1_score_value:.2f}")
-    #print("Classification Report:\n", classification_report(y_test, y_pred, zero_division=1))
     
     return model
 
@@ -167,45 +193,56 @@ def grid_search(df, profit_margins, future_windows):
     
     results = []
 
-    for margin in profit_margins:
-        for window in future_windows:
-            #print(f"\nTesting PROFIT_MARGIN={margin}, FUTURE_WINDOW={window}")
+    # Updated feature columns list
+    feature_cols = ['SMA_10', 'SMA_50', 'EMA_10', 'EMA_50',
+                    'RSI_14', 'RSI_28', 'MACD', 'MACD_Signal',
+                    'Bollinger_Upper', 'Bollinger_Lower', 'Stoch', 'ATR_14',
+                    'CCI_20', 'Williams_%R', 'OBV', 'Momentum_10']
 
-            # Step 1: Create labels with the current parameters
-            df_labeled = create_profit_labels(df.copy(), profit_margin=margin, future_window=window)
-            df_labeled = add_technical_indicators(df_labeled)
-            df_labeled.dropna(inplace=True)
+    # Calculate total number of iterations
+    total_iterations = len(profit_margins) * len(future_windows)
 
-            if len(df_labeled) < 10:
-                print("Not enough data points, skipping...")
-                continue
+    # Use tqdm for a progress bar
+    with tqdm(total=total_iterations, desc="Grid Search Progress", unit="comb") as pbar:
+        for margin in profit_margins:
+            for window in future_windows:
+                # Step 1: Create labels with the current parameters
+                df_labeled = create_profit_labels(df.copy(), profit_margin=margin, future_window=window)
+                df_labeled = add_technical_indicators(df_labeled)
+                df_labeled.dropna(inplace=True)
 
-            feature_cols = ['SMA_10', 'EMA_10', 'RSI', 'MACD', 'Bollinger_Upper', 'Bollinger_Lower']
-            X = df_labeled[feature_cols]
-            y = df_labeled['label']
+                if len(df_labeled) < 10:
+                    pbar.update(1)
+                    continue
 
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
-            scaler = StandardScaler()
-            X_train_scaled = scaler.fit_transform(X_train)
-            X_test_scaled = scaler.transform(X_test)
+                X = df_labeled[feature_cols]
+                y = df_labeled['label']
 
-            model = LogisticRegression(class_weight='balanced', random_state=42)
-            model.fit(X_train_scaled, y_train)
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+                scaler = StandardScaler()
+                X_train_scaled = scaler.fit_transform(X_train)
+                X_test_scaled = scaler.transform(X_test)
 
-            y_pred = model.predict(X_test_scaled)
-            score = f1_score(y_test, y_pred, zero_division=1)
-            #print(f"F1 Score: {score:.2f} (Margin: {margin}, Window: {window})")
+                model = LogisticRegression(class_weight='balanced', random_state=42)
+                model.fit(X_train_scaled, y_train)
 
-            results.append((margin, window, score))
+                y_pred = model.predict(X_test_scaled)
+                score = f1_score(y_test, y_pred, zero_division=1)
+                
+                results.append((margin, window, score))
 
-            if score > best_score:
-                best_score = score
-                best_params = (margin, window)
-                best_model = model
-                best_scaler = scaler
-                best_X_test = X_test_scaled
-                best_y_test = y_test
-                best_y_pred = y_pred
+                # Update best model if current score is better
+                if score > best_score:
+                    best_score = score
+                    best_params = (margin, window)
+                    best_model = model
+                    best_scaler = scaler
+                    best_X_test = X_test_scaled
+                    best_y_test = y_test
+                    best_y_pred = y_pred
+
+                # Update progress bar
+                pbar.update(1)
 
     # Plot the 3D surface with the best point
     if results:
@@ -219,6 +256,15 @@ def grid_search(df, profit_margins, future_windows):
         print(f"\nAccuracy: {accuracy:.2f}")
         print("Detailed Classification Report:")
         print(classification_report(best_y_test, best_y_pred, zero_division=1))
+
+        # Visualize the buy signals on the historical price chart
+        plot_buy_signals(df, best_model, best_scaler)
+
+        # Extract and print feature weights for the best model
+        weights = best_model.coef_[0]
+        print("\nFeature Weights (Best Model):")
+        for feature, weight in zip(feature_cols, weights):
+            print(f"{feature}: {weight:.4f}")
 
     return best_params
 
@@ -256,6 +302,61 @@ def plot_3d_surface(results, best_params=None, best_score=None):
     fig.colorbar(surface, ax=ax, shrink=0.5, aspect=5)
     ax.legend()
     plt.show()
+
+def plot_buy_signals(df, model, scaler):
+    """
+    Plots the historical price along with predicted buy signals from the model.
+    """
+    # Define the feature columns
+    feature_cols = ['SMA_10', 'SMA_50', 'EMA_10', 'EMA_50',
+                    'RSI_14', 'RSI_28', 'MACD', 'MACD_Signal',
+                    'Bollinger_Upper', 'Bollinger_Lower', 'Stoch', 'ATR_14',
+                    'CCI_20', 'Williams_%R', 'OBV', 'Momentum_10']
+    
+    # Check if all feature columns exist in the DataFrame
+    missing_cols = [col for col in feature_cols if col not in df.columns]
+    if missing_cols:
+        print(f"Missing columns detected: {missing_cols}. Recalculating indicators...")
+        df = add_technical_indicators(df)
+    
+    # Drop rows with NaN values in the feature columns
+    df = df.dropna(subset=feature_cols)
+    
+    # Ensure there's enough data after dropping NaNs
+    if df.empty:
+        print("No data available after dropping NaNs. Cannot plot buy signals.")
+        return
+
+    # Prepare the features for prediction
+    X = df[feature_cols]
+    X_scaled = scaler.transform(X)
+    
+    # Make predictions using the trained model
+    predictions = model.predict(X_scaled)
+    
+    # Extract timestamps and closing prices for plotting
+    timestamps = df.index
+    close_prices = df['close_price']
+    
+    # Identify the points where the model predicted a profitable trade (buy signal)
+    buy_signals = predictions == 1
+
+    # Plot the historical price data
+    plt.figure(figsize=(12, 6))
+    plt.plot(timestamps, close_prices, label='Close Price', color='blue')
+
+    # Mark the buy signals on the plot
+    plt.scatter(timestamps[buy_signals], close_prices[buy_signals],
+                color='green', label='Buy Signal', marker='o', s=50)
+
+    # Add labels, legend, and title
+    plt.xlabel('Date')
+    plt.ylabel('Price')
+    plt.title('Cryptocurrency Price with Predicted Buy Signals')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
 
 def main():
     """Main function to run the pipeline."""
