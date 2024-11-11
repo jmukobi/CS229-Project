@@ -1,10 +1,13 @@
+import numpy as np
 import robin_stocks.robinhood as r
 import pandas as pd
 import pandas_ta as ta
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import f1_score, classification_report, accuracy_score
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import traceback
 from configuration import username, password
 
@@ -126,7 +129,7 @@ def train_logistic_regression(df):
     X_scaled = scaler.fit_transform(X)
     
     # Split data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.1, random_state=42)
     
     # Train the logistic regression model with class weight adjustment
     model = LogisticRegression(class_weight='balanced', random_state=42)
@@ -135,8 +138,10 @@ def train_logistic_regression(df):
     # Make predictions and evaluate
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
-    print(f"Accuracy: {accuracy:.2f}")
-    print("Classification Report:\n", classification_report(y_test, y_pred, zero_division=1))
+    f1_score_value = f1_score(y_test, y_pred, zero_division=1)
+    #print(f"Accuracy: {accuracy:.2f}")
+    print(f"F1 Score: {f1_score_value:.2f}")
+    #print("Classification Report:\n", classification_report(y_test, y_pred, zero_division=1))
     
     return model
 
@@ -150,10 +155,112 @@ def check_label_distribution(df):
     else:
         print("Labels not found in the dataset.")
 
+def grid_search(df, profit_margins, future_windows):
+    """Perform grid search to find the best PROFIT_MARGIN and FUTURE_WINDOW."""
+    best_score = 0
+    best_params = None
+    best_model = None
+    best_scaler = None
+    best_X_test = None
+    best_y_test = None
+    best_y_pred = None
+    
+    results = []
+
+    for margin in profit_margins:
+        for window in future_windows:
+            #print(f"\nTesting PROFIT_MARGIN={margin}, FUTURE_WINDOW={window}")
+
+            # Step 1: Create labels with the current parameters
+            df_labeled = create_profit_labels(df.copy(), profit_margin=margin, future_window=window)
+            df_labeled = add_technical_indicators(df_labeled)
+            df_labeled.dropna(inplace=True)
+
+            if len(df_labeled) < 10:
+                print("Not enough data points, skipping...")
+                continue
+
+            feature_cols = ['SMA_10', 'EMA_10', 'RSI', 'MACD', 'Bollinger_Upper', 'Bollinger_Lower']
+            X = df_labeled[feature_cols]
+            y = df_labeled['label']
+
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_test_scaled = scaler.transform(X_test)
+
+            model = LogisticRegression(class_weight='balanced', random_state=42)
+            model.fit(X_train_scaled, y_train)
+
+            y_pred = model.predict(X_test_scaled)
+            score = f1_score(y_test, y_pred, zero_division=1)
+            #print(f"F1 Score: {score:.2f} (Margin: {margin}, Window: {window})")
+
+            results.append((margin, window, score))
+
+            if score > best_score:
+                best_score = score
+                best_params = (margin, window)
+                best_model = model
+                best_scaler = scaler
+                best_X_test = X_test_scaled
+                best_y_test = y_test
+                best_y_pred = y_pred
+
+    # Plot the 3D surface with the best point
+    if results:
+        plot_3d_surface(results, best_params=best_params, best_score=best_score)
+    
+    if best_params:
+        print(f"\nBest Parameters: PROFIT_MARGIN={best_params[0]}, FUTURE_WINDOW={best_params[1]}")
+        print(f"Best F1 Score: {best_score:.2f}")
+
+        accuracy = accuracy_score(best_y_test, best_y_pred)
+        print(f"\nAccuracy: {accuracy:.2f}")
+        print("Detailed Classification Report:")
+        print(classification_report(best_y_test, best_y_pred, zero_division=1))
+
+    return best_params
+
+def plot_3d_surface(results, best_params=None, best_score=None):
+    """Plots a 3D surface of F1 scores based on profit margins and future windows, with the best point highlighted."""
+    # Extract data
+    margins, windows, scores = zip(*results)
+    
+    # Convert to numpy arrays for plotting
+    margins = np.array(margins)
+    windows = np.array(windows)
+    scores = np.array(scores)
+
+    # Create a grid for 3D plotting
+    margins_grid, windows_grid = np.meshgrid(np.unique(margins), np.unique(windows))
+    scores_grid = np.array([scores[i] for i in range(len(scores))]).reshape(margins_grid.shape)
+    
+    # Plotting
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_subplot(111, projection='3d')
+    surface = ax.plot_surface(margins_grid, windows_grid, scores_grid, cmap='viridis', edgecolor='k')
+
+    # Highlight the best point with a red dot
+    if best_params is not None and best_score is not None:
+        best_margin, best_window = best_params
+        #ax.scatter(best_margin, best_window, best_score, color='red', s=50, label='Best Point', marker='o')
+        #ax.text(best_margin, best_window, best_score, f'({best_margin}, {best_window}, {best_score:.2f})', color='red')
+
+    # Labels and title
+    ax.set_xlabel('Profit Margin')
+    ax.set_ylabel('Future Window')
+    ax.set_zlabel('F1 Score')
+    ax.set_title('F1 Score vs Profit Margin and Future Window')
+    
+    fig.colorbar(surface, ax=ax, shrink=0.5, aspect=5)
+    ax.legend()
+    plt.show()
+
 def main():
     """Main function to run the pipeline."""
     try:
-        login()
+        """login()
         df = get_crypto_historical_data()
         if df is not None:
             df = create_profit_labels(df)
@@ -164,6 +271,17 @@ def main():
             if not df.empty:
                 train_logistic_regression(df)
         
+        logout()"""
+        login()
+        df = get_crypto_historical_data()
+        
+        # Define search space using range()
+        profit_margins = [x / 1000 for x in range(1, 30, 1)]
+        future_windows = list(range(2, 30, 1)) 
+
+        
+        # Perform grid search
+        best_params = grid_search(df, profit_margins, future_windows)
         logout()
     except Exception as e:
         tb_str = traceback.format_exception(type(e), e, e.__traceback__)
