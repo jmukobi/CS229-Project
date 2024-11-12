@@ -157,7 +157,7 @@ def train_logistic_regression(df):
     X_scaled = scaler.fit_transform(X)
     
     # Split data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.1, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
     
     # Train the logistic regression model with class weight adjustment
     model = LogisticRegression(class_weight='balanced', random_state=42)
@@ -218,7 +218,7 @@ def grid_search(df, profit_margins, future_windows):
                 X = df_labeled[feature_cols]
                 y = df_labeled['label']
 
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
                 scaler = StandardScaler()
                 X_train_scaled = scaler.fit_transform(X_train)
                 X_test_scaled = scaler.transform(X_test)

@@ -53,8 +53,10 @@ def backtest():
         # Test the next window period to simulate real trading
         df_test = df.iloc[i:i+FUTURE_WINDOW]
 
-        # Make predictions
         predictions = make_prediction(df_test, model, scaler)
+        if predictions is None:
+            print("Skipping current backtest window due to insufficient data.")
+            continue  # Skip to the next iteration if predictions could not be made
 
         # Step 5: Execute trades based on predictions and stop loss strategy
         for j, prediction in enumerate(predictions):
@@ -105,7 +107,12 @@ def backtest():
 
     # Plotting trade actions on price data
     plt.figure(figsize=(12, 6))
-    plt.plot(df['timestamp'], df['close_price'], label='Close Price', color='blue')
+    if not df_test.empty:
+        # Ensure the DataFrame has the 'timestamp' column
+        if 'timestamp' not in df_test.columns:
+            df_test.reset_index(inplace=True)
+        
+        plt.plot(df_test['timestamp'], df_test['close_price'], label='Close Price', color='blue')
     buy_signals = df_trades[df_trades["Action"].str.contains("BUY")]
     profit_sell_signals = df_trades[df_trades["Action"].str.contains("PROFIT TARGET")]
     stop_loss_signals = df_trades[df_trades["Action"].str.contains("STOP LOSS")]

@@ -38,18 +38,28 @@ def logout():
 
 def get_crypto_historical_data(symbol=SYMBOL, interval=DATA_INTERVAL, span=DATA_SPAN):
     """Fetches historical data for a given cryptocurrency."""
-    data = r.crypto.get_crypto_historicals(symbol, interval=interval, span=span, bounds='24_7')
-    if not data:
-        print(f"No data found for {symbol}")
+    try:
+        data = r.crypto.get_crypto_historicals(symbol, interval=interval, span=span, bounds='24_7')
+        if not data:
+            print(f"No data found for {symbol}")
+            return None
+        
+        df = pd.DataFrame(data)
+        df['timestamp'] = pd.to_datetime(df['begins_at'])
+        df.set_index('timestamp', inplace=False)  # Ensure 'timestamp' column is not dropped
+        
+        # Convert price columns to numeric
+        df['close_price'] = pd.to_numeric(df['close_price'], errors='coerce')
+        df['high_price'] = pd.to_numeric(df['high_price'], errors='coerce')
+        df['low_price'] = pd.to_numeric(df['low_price'], errors='coerce')
+        df['open_price'] = pd.to_numeric(df['open_price'], errors='coerce')
+        df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+        
+        print(f"Fetched {len(df)} data points for {symbol}")
+        return df.dropna().reset_index()  # Preserve the 'timestamp' column
+    except Exception as e:
+        print("Error fetching data:", e)
         return None
-    df = pd.DataFrame(data)
-    df['timestamp'] = pd.to_datetime(df['begins_at'])
-    df.set_index('timestamp', inplace=True)
-    df['close_price'] = pd.to_numeric(df['close_price'], errors='coerce')
-    df['high_price'] = pd.to_numeric(df['high_price'], errors='coerce')
-    df['low_price'] = pd.to_numeric(df['low_price'], errors='coerce')
-    df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
-    return df.dropna()
 
 def create_profit_labels(df, profit_margin=PROFIT_MARGIN, future_window=FUTURE_WINDOW):
     """Creates labels for predicting profitable trades."""
@@ -60,68 +70,37 @@ def create_profit_labels(df, profit_margin=PROFIT_MARGIN, future_window=FUTURE_W
 
 def add_technical_indicators(df):
     """Calculates a comprehensive set of technical indicators using pandas_ta."""
-    try:
-        # Calculate Simple Moving Averages (SMA)
-        df['SMA_10'] = ta.sma(df['close_price'], length=10)
-        df['SMA_50'] = ta.sma(df['close_price'], length=50)
+    df.loc[:, 'SMA_10'] = ta.sma(df['close_price'], length=10)
+    df.loc[:, 'SMA_50'] = ta.sma(df['close_price'], length=50)
+    df.loc[:, 'EMA_10'] = ta.ema(df['close_price'], length=10)
+    df.loc[:, 'EMA_50'] = ta.ema(df['close_price'], length=50)
+    df.loc[:, 'RSI_14'] = ta.rsi(df['close_price'], length=14)
+    df.loc[:, 'RSI_28'] = ta.rsi(df['close_price'], length=28)
 
-        # Exponential Moving Averages (EMA)
-        df['EMA_10'] = ta.ema(df['close_price'], length=10)
-        df['EMA_50'] = ta.ema(df['close_price'], length=50)
-
-        # Relative Strength Index (RSI)
-        df['RSI_14'] = ta.rsi(df['close_price'], length=14)
-        df['RSI_28'] = ta.rsi(df['close_price'], length=28)
-
-        # MACD and MACD Signal
-        macd = ta.macd(df['close_price'])
-        if macd is not None and not macd.empty:
-            df['MACD'] = macd.get('MACD_12_26_9', np.nan)
-            df['MACD_Signal'] = macd.get('MACDs_12_26_9', np.nan)
-        else:
-            print("MACD calculation failed; filling with NaN.")
-            df['MACD'] = np.nan
-            df['MACD_Signal'] = np.nan
-
-        # Bollinger Bands
-        bbands = ta.bbands(df['close_price'], length=20)
-        if bbands is not None and not bbands.empty:
-            df['Bollinger_Upper'] = bbands.get('BBU_20_2.0', np.nan)
-            df['Bollinger_Lower'] = bbands.get('BBL_20_2.0', np.nan)
-        else:
-            print("Bollinger Bands calculation failed; filling with NaN.")
-            df['Bollinger_Upper'] = np.nan
-            df['Bollinger_Lower'] = np.nan
-
-        # Stochastic Oscillator
-        stoch = ta.stoch(df['high_price'], df['low_price'], df['close_price'])
-        if stoch is not None and not stoch.empty:
-            df['Stoch'] = stoch.get('STOCHk_14_3_3', np.nan)
-        else:
-            print("Stochastic Oscillator calculation failed; filling with NaN.")
-            df['Stoch'] = np.nan
-
-        # Average True Range (ATR)
-        df['ATR_14'] = ta.atr(df['high_price'], df['low_price'], df['close_price'], length=14)
-
-        # Commodity Channel Index (CCI)
-        df['CCI_20'] = ta.cci(df['high_price'], df['low_price'], df['close_price'], length=20)
-
-        # Williams %R
-        df['Williams_%R'] = ta.willr(df['high_price'], df['low_price'], df['close_price'], length=14)
-
-        # On-Balance Volume (OBV)
-        df['OBV'] = ta.obv(df['close_price'], df['volume'])
-
-        # Momentum (MOM)
-        df['Momentum_10'] = ta.mom(df['close_price'], length=10)
-
-        # Drop rows with NaN values after adding indicators
-        df.dropna(inplace=True)
-
-    except Exception as e:
-        print(f"Error calculating technical indicators: {e}")
-
+    # Handle potential None values for MACD and others
+    macd = ta.macd(df['close_price'])
+    if macd is not None:
+        df.loc[:, 'MACD'] = macd['MACD_12_26_9']
+        df.loc[:, 'MACD_Signal'] = macd['MACDs_12_26_9']
+    else:
+        df.loc[:, 'MACD'] = np.nan
+        df.loc[:, 'MACD_Signal'] = np.nan
+    
+    bbands = ta.bbands(df['close_price'], length=20)
+    if bbands is not None:
+        df.loc[:, 'Bollinger_Upper'] = bbands.get('BBU_20_2.0', np.nan)
+        df.loc[:, 'Bollinger_Lower'] = bbands.get('BBL_20_2.0', np.nan)
+    
+    df.loc[:, 'Stoch'] = ta.stoch(df['high_price'], df['low_price'], df['close_price']).get('STOCHk_14_3_3', np.nan)
+    df.loc[:, 'ATR_14'] = ta.atr(df['high_price'], df['low_price'], df['close_price'], length=14)
+    df.loc[:, 'CCI_20'] = ta.cci(df['high_price'], df['low_price'], df['close_price'], length=20)
+    df.loc[:, 'Williams_%R'] = ta.willr(df['high_price'], df['low_price'], df['close_price'], length=14)
+    df.loc[:, 'OBV'] = ta.obv(df['close_price'], df['volume'])
+    df.loc[:, 'Momentum_10'] = ta.mom(df['close_price'], length=10)
+    
+    # Drop rows with NaN values after adding indicators
+    df.dropna(inplace=True)
+    
     return df
 
 
@@ -159,13 +138,41 @@ def train_model(df):
 
 
 def make_prediction(df, model, scaler):
-    """Makes predictions using the trained model."""
+    """
+    Makes predictions on the given DataFrame using the trained model and scaler.
+    """
+    # Define the feature columns
+    feature_cols = ['SMA_10', 'SMA_50', 'EMA_10', 'EMA_50',
+                    'RSI_14', 'RSI_28', 'MACD', 'MACD_Signal',
+                    'Bollinger_Upper', 'Bollinger_Lower', 'Stoch', 'ATR_14',
+                    'CCI_20', 'Williams_%R', 'OBV', 'Momentum_10']
+    
+    # Add technical indicators to the DataFrame
     df = add_technical_indicators(df)
-    df = df.dropna(subset=FEATURE_COLS)
-    X = df[FEATURE_COLS]
+    
+    # Drop rows with NaN values
+    df.dropna(inplace=True)
+    
+    # Check if there's enough data left
+    if df.empty:
+        print("No data left after adding indicators and dropping NaNs. Skipping prediction.")
+        return None  # Return None if no data is left
+
+    # Prepare features for prediction
+    X = df[feature_cols]
+    
+    # Check if X is empty before scaling
+    if X.empty:
+        print("No valid data points to scale. Skipping prediction.")
+        return None
+
+    # Scale the features
     X_scaled = scaler.transform(X)
+    
+    # Make predictions using the model
     predictions = model.predict(X_scaled)
     return predictions
+
 
 def main():
     login()
