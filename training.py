@@ -181,6 +181,7 @@ def check_label_distribution(df):
     else:
         print("Labels not found in the dataset.")
 
+
 def grid_search(df, profit_margins, future_windows):
     """Perform grid search to find the best PROFIT_MARGIN and FUTURE_WINDOW."""
     best_score = 0
