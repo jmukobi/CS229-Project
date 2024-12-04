@@ -58,7 +58,7 @@ def create_csv_log():
     with open(log_file, "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([
-            "Timestamp", "Action", "Parameters", "Model Weights", "Buy Price", "Current Price", "Profit Margin", "In Position"
+            "Timestamp", "Action", "Parameters", "Model Weights", "Buy Price", "Current Price", "Profit Margin", "In Position", "Buy Probability"
         ])
     print(f"Log file created: {log_file}")
 
@@ -207,7 +207,7 @@ def sell_position():
     except Exception as e:
         print("Failed to sell position:", e)
 
-def log_action(action, parameters, model_weights, current_price, profit_margin):
+def log_action(action, parameters, model_weights, current_price, profit_margin, buy_probability=None):
     global in_position_flag, buy_price
 
     # Serialize weights into a compact format
@@ -227,7 +227,8 @@ def log_action(action, parameters, model_weights, current_price, profit_margin):
             buy_price,
             current_price,
             profit_margin,
-            in_position_flag
+            in_position_flag,
+            buy_probability
         ])
 
 
@@ -303,11 +304,11 @@ def main():
                             sell_price = round(current_price * (1 + best_params[0]/SELL_SAFETEY_FACTOR), 2)
                             buy_quantity = purchasing_power*POSITION_SIZE
                             execute_buy(current_price, sell_price, buy_quantity)
-                            log_action("BUY", best_params, model.coef_, current_price, best_params[0])
+                            log_action("BUY", best_params, model.coef_, current_price, best_params[0], buy_probability)
                         else:
-                            log_action("HOLD", best_params, model.coef_, current_price, best_params[0])
+                            log_action("HOLD", best_params, model.coef_, current_price, best_params[0], buy_probability)
                     else:
-                        log_action("HOLD", best_params, model.coef_, current_price, best_params[0])
+                        log_action("HOLD", best_params, model.coef_, current_price, best_params[0], buy_probability)
             time.sleep(INTERVAL)
     except KeyboardInterrupt:
         logout_from_robinhood()
