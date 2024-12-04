@@ -109,7 +109,7 @@ def add_technical_indicators(df):
 def run_grid_search(df):
     best_params = None
     best_score = 0
-    for margin in [x / 1000 for x in range(11, 30, 1)]:
+    for margin in [x / 1000 for x in range(20, 40, 1)]:
         for window in range(2, 30, 1):
             try:
                 # Step 1: Label the data

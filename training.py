@@ -378,7 +378,7 @@ def main():
         df = get_crypto_historical_data()
         
         # Define search space using range()
-        profit_margins = [x / 1000 for x in range(1, 30, 1)]
+        profit_margins = [x / 1000 for x in range(20, 40, 1)]
         future_windows = list(range(2, 30, 1)) 
 
         
