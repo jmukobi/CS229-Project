@@ -110,7 +110,7 @@ def run_grid_search(df):
     best_params = None
     best_score = 0
     for margin in [x / 1000 for x in range(20, 40, 1)]:
-        for window in range(2, 30, 1):
+        for window in range(2, 40, 1):
             try:
                 # Step 1: Label the data
                 labeled_df = create_profit_labels(df.copy(), margin, window)
@@ -146,8 +146,8 @@ def run_grid_search(df):
                 # Handle any error during grid search
                 #print(f"Skipping margin={margin}, window={window} due to error: {e}")
                 continue
-
-    return best_params
+        #print(f"Best score: {best_score}, Best params: {best_params}")
+    return best_params, best_score
 
 
 # Create profit labels
@@ -288,8 +288,8 @@ def main():
                 purchasing_power = float(r.profiles.load_account_profile()['crypto_buying_power'])
                 print(f"Purchasing power: {purchasing_power}")
 
-                best_params = run_grid_search(df)
-                print(f"Best parameters: {best_params}")
+                best_params, best_score = run_grid_search(df)
+                print(f"Best parameters: {best_params}, Best score: {best_score:.2f}")
                 print(f"Current price: {current_price}")
 
                 if best_params:
@@ -321,5 +321,13 @@ if __name__ == "__main__":
     #login_to_robinhood()
 
     #sell_position()
-
-    main()
+    while True:
+        try:
+            main()
+        except Exception as e:
+            print("Error:", e)
+            traceback.print_exc()
+            logout_from_robinhood()
+            time.sleep(10)
+            continue
+    #main()
