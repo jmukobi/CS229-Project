@@ -379,7 +379,7 @@ def main():
         
         # Define search space using range()
         profit_margins = [x / 1000 for x in range(20, 40, 1)]
-        future_windows = list(range(2, 30, 1)) 
+        future_windows = list(range(3, 30, 1)) 
 
         
         # Perform grid search

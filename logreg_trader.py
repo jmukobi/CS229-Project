@@ -110,7 +110,7 @@ def run_grid_search(df):
     best_params = None
     best_score = 0
     for margin in [x / 1000 for x in range(20, 40, 1)]:
-        for window in range(2, 40, 1):
+        for window in range(3, 40, 1):
             try:
                 # Step 1: Label the data
                 labeled_df = create_profit_labels(df.copy(), margin, window)
@@ -327,7 +327,10 @@ if __name__ == "__main__":
         except Exception as e:
             print("Error:", e)
             traceback.print_exc()
-            logout_from_robinhood()
+            try:
+                logout_from_robinhood()
+            except:
+                pass
             time.sleep(10)
             continue
     #main()
