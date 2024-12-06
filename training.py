@@ -337,7 +337,7 @@ def plot_buy_signals(df, model, scaler):
     
     probabilities = model.predict_proba(X_scaled)
 
-    threshold = 0.75
+    threshold = 0.60
 
     predictions = (probabilities[:, 1] > threshold).astype(int)
     # Extract timestamps and closing prices for plotting

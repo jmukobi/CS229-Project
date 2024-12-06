@@ -20,7 +20,7 @@ STOP_LOSS_THRESHOLD = 0.05
 POSITION_SIZE = 0.1
 INTERVAL = 10  # seconds between each decision
 SELL_SAFETEY_FACTOR = 1
-BUY_PROBABILITY_THRESHOLD = 0.75
+BUY_PROBABILITY_THRESHOLD = 0.7
 
 # Technical indicators to use
 TECHNICAL_INDICATORS = [
@@ -54,7 +54,9 @@ def logout_from_robinhood():
 def create_csv_log():
     global log_file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"trading_log_{timestamp}.csv"
+    import os
+    os.makedirs("logs", exist_ok=True)
+    log_file = f"logs/trading_log_{timestamp}.csv"
     with open(log_file, "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([
