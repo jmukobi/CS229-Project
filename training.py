@@ -333,8 +333,13 @@ def plot_buy_signals(df, model, scaler):
     X_scaled = scaler.transform(X)
     
     # Make predictions using the trained model
-    predictions = model.predict(X_scaled)
+    #predictions = model.predict(X_scaled)
     
+    probabilities = model.predict_proba(X_scaled)
+
+    threshold = 0.75
+
+    predictions = (probabilities[:, 1] > threshold).astype(int)
     # Extract timestamps and closing prices for plotting
     timestamps = df.index
     close_prices = df['close_price']
