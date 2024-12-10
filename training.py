@@ -11,6 +11,16 @@ from mpl_toolkits.mplot3d import Axes3D
 import traceback
 from configuration import username, password
 from tqdm import tqdm
+import matplotlib.colors as mcolors
+'''
+START_COLOR = [168/255, 0/255, 4/255]
+END_COLOR = [39/255, 159/255, 142/255]'''
+
+START_COLOR = [134/255, 0/255, 40/255]
+END_COLOR = [29/255, 94/255, 151/255]
+
+# Create a custom colormap
+CUSTOM_CMAP = 'Spectral' #mcolors.LinearSegmentedColormap.from_list("custom_cmap", [START_COLOR, END_COLOR])
 
 # Constants
 SYMBOL = "ETH"
@@ -18,6 +28,7 @@ DATA_INTERVAL = "hour"
 DATA_SPAN = "month"
 PROFIT_MARGIN = 0.005
 FUTURE_WINDOW = 12
+CONFIDENCE_THRESHOLD = 0.50
 
 def login():
     """
@@ -165,6 +176,8 @@ def train_logistic_regression(df):
     
     # Make predictions and evaluate
     y_pred = model.predict(X_test)
+    probabilities = model.predict_proba(X_test)
+    y_pred = (probabilities[:, 1] > CONFIDENCE_THRESHOLD).astype(int)
     accuracy = accuracy_score(y_test, y_pred)
     f1_score_value = f1_score(y_test, y_pred, zero_division=1)
     print(f"F1 Score: {f1_score_value:.2f}")
@@ -212,11 +225,15 @@ def grid_search(df, profit_margins, future_windows):
                 df_labeled = add_technical_indicators(df_labeled)
                 df_labeled.dropna(inplace=True)
 
+                
+
                 if len(df_labeled) < 10:
                     pbar.update(1)
                     continue
 
                 X = df_labeled[feature_cols]
+                #print(X)
+                #wait = input("PRESS ENTER TO CONTINUE.")
                 y = df_labeled['label']
 
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -244,10 +261,49 @@ def grid_search(df, profit_margins, future_windows):
 
                 # Update progress bar
                 pbar.update(1)
+ 
+    #plot df labeled price, normalized indicators, and 1 labels vs time
+    plt.figure(figsize=(12, 6))
+    #plt.plot(df_labeled.index, df_labeled['close_price'], label='Close Price', color='blue')
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    ax1.plot(df_labeled.index, df_labeled['close_price'], label='Close Price', color='blue', zorder=30, linewidth=2)
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Price', color='blue')
+    ax1.tick_params(axis='y', labelcolor='blue')
+
+    ax2 = ax1.twinx()
+    
+    # Plot normalized indicators
+    scaler = StandardScaler()
+    X = df_labeled[feature_cols]
+    X = scaler.fit_transform(X)
+
+    print(X)
+    #feature_cols2 = ['RSI_14', 'RSI_28', 'MACD', 'MACD_Signal',
+    #                'Stoch', 'ATR_14',
+    #                'CCI_20', 'Williams_%R', 'Momentum_10']
+    for i, col in enumerate(feature_cols):
+        ax2.plot(df_labeled.index, X[:, i], label=col, alpha=0.3, zorder=i)
+
+    ax2.set_ylabel('Normalized Indicators', color='black')
+    ax2.tick_params(axis='y', labelcolor='black')
+
+    fig.tight_layout()
+    fig.legend(loc='upper left', bbox_to_anchor=(0.1, 0.9))
+    #plt.scatter(df_labeled['Timestamp'], df_labeled['close_price'][df_labeled['label'] == 1], color='red', label='Buy Signal')
+    buy_indices = df_labeled[df_labeled['label'] == 1].index
+    buy_prices = df_labeled['close_price'][df_labeled['label'] == 1]
+    #for i in range(len(df_labeled)):
+    #    if df_labeled['label'][i] == 1:
+    ax1.scatter(buy_indices, buy_prices, color='green', label='Buy Signals', zorder=40)
+    #plt.legend()
+    plt.grid(True)
+    plt.show()
 
     # Plot the 3D surface with the best point
     if results:
-        plot_3d_surface(results, best_params=best_params, best_score=best_score)
+        plot_2d_heatmap(results, best_params=best_params, best_score=best_score)
     
     if best_params:
         print(f"\nBest Parameters: PROFIT_MARGIN={best_params[0]}, FUTURE_WINDOW={best_params[1]}")
@@ -267,10 +323,13 @@ def grid_search(df, profit_margins, future_windows):
         for feature, weight in zip(feature_cols, weights):
             print(f"{feature}: {weight:.4f}")
 
-    return best_params
+        #plot sigmoid surface of 2 highest magnitude features
+        plot_sigmoid_surface(weights, feature_cols)
 
-def plot_3d_surface(results, best_params=None, best_score=None):
-    """Plots a 3D surface of F1 scores based on profit margins and future windows, with the best point highlighted."""
+    return best_params, weights
+
+def plot_2d_heatmap(results, best_params=None, best_score=None):
+    """Plots a 2D heatmap of F1 scores based on profit margins and future windows, with the best point highlighted."""
     # Extract data
     margins, windows, scores = zip(*results)
     
@@ -279,29 +338,13 @@ def plot_3d_surface(results, best_params=None, best_score=None):
     windows = np.array(windows)
     scores = np.array(scores)
 
-    # Create a grid for 3D plotting
-    margins_grid, windows_grid = np.meshgrid(np.unique(margins), np.unique(windows))
-    scores_grid = np.array([scores[i] for i in range(len(scores))]).reshape(margins_grid.shape)
-    
-    # Plotting
-    fig = plt.figure(figsize=(10, 7))
-    ax = fig.add_subplot(111, projection='3d')
-    surface = ax.plot_surface(margins_grid, windows_grid, scores_grid, cmap='viridis', edgecolor='k')
-
-    # Highlight the best point with a red dot
-    if best_params is not None and best_score is not None:
-        best_margin, best_window = best_params
-        #ax.scatter(best_margin, best_window, best_score, color='red', s=50, label='Best Point', marker='o')
-        #ax.text(best_margin, best_window, best_score, f'({best_margin}, {best_window}, {best_score:.2f})', color='red')
-
-    # Labels and title
-    ax.set_xlabel('Profit Margin')
-    ax.set_ylabel('Future Window')
-    ax.set_zlabel('F1 Score')
-    ax.set_title('F1 Score vs Profit Margin and Future Window')
-    
-    fig.colorbar(surface, ax=ax, shrink=0.5, aspect=5)
-    ax.legend()
+    plt.figure(figsize=(10, 7))
+    plt.pcolormesh((margins, windows, scores), cmap=CUSTOM_CMAP)
+    #plt.scatter(*best_params, color='red', label=f'Best F1 Score: {best_score:.2f}')
+    plt.colorbar(label='F1 Score')
+    plt.xlabel('Profit Margin')
+    plt.ylabel('Future Window')
+    plt.title('F1 Score Heatmap for Logistic Regression Model')
     plt.show()
 
 def plot_buy_signals(df, model, scaler):
@@ -314,15 +357,20 @@ def plot_buy_signals(df, model, scaler):
                     'Bollinger_Upper', 'Bollinger_Lower', 'Stoch', 'ATR_14',
                     'CCI_20', 'Williams_%R', 'OBV', 'Momentum_10']
     
+    #print(df.columns)
     # Check if all feature columns exist in the DataFrame
     missing_cols = [col for col in feature_cols if col not in df.columns]
     if missing_cols:
-        print(f"Missing columns detected: {missing_cols}. Recalculating indicators...")
+        #print(f"Missing columns detected: {missing_cols}. Recalculating indicators...")
         df = add_technical_indicators(df)
     
+    print(df)
     # Drop rows with NaN values in the feature columns
     df = df.dropna(subset=feature_cols)
     
+    #only include test set data
+    df = df.iloc[-len(df)//5:]
+
     # Ensure there's enough data after dropping NaNs
     if df.empty:
         print("No data available after dropping NaNs. Cannot plot buy signals.")
@@ -337,9 +385,7 @@ def plot_buy_signals(df, model, scaler):
     
     probabilities = model.predict_proba(X_scaled)
 
-    threshold = 0.60
-
-    predictions = (probabilities[:, 1] > threshold).astype(int)
+    predictions = (probabilities[:, 1] > CONFIDENCE_THRESHOLD).astype(int)
     # Extract timestamps and closing prices for plotting
     timestamps = df.index
     close_prices = df['close_price']
@@ -349,11 +395,11 @@ def plot_buy_signals(df, model, scaler):
 
     # Plot the historical price data
     plt.figure(figsize=(12, 6))
-    plt.plot(timestamps, close_prices, label='Close Price', color='blue')
+    plt.plot(timestamps, close_prices, label='Close Price', color=START_COLOR)
 
     # Mark the buy signals on the plot
     plt.scatter(timestamps[buy_signals], close_prices[buy_signals],
-                color='green', label='Buy Signal', marker='o', s=50)
+                color=END_COLOR, label='Buy Signal', marker='o', s=50)
 
     # Add labels, legend, and title
     plt.xlabel('Date')
@@ -363,6 +409,32 @@ def plot_buy_signals(df, model, scaler):
     plt.grid(True)
     plt.show()
 
+def plot_sigmoid_surface(weights, feature_cols):
+    """Plots a 3D surface of the sigmoid function based on two feature columns."""
+    # Extract the two highest magnitude feature weights
+    top_features = sorted(zip(weights, feature_cols), key=lambda x: abs(x[0]), reverse=True)[:2]
+    weight1, feature1 = top_features[0]
+    weight2, feature2 = top_features[1]
+    
+    # Create a grid for 3D plotting
+    x = np.linspace(-3, 3, 100)
+    y = np.linspace(-3, 3, 100)
+    x, y = np.meshgrid(x, y)
+    z = 1 / (1 + np.exp(-(weight1 * x + weight2 * y)))
+    
+    # Plotting
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_subplot(111, projection='3d')
+    surface = ax.plot_surface(x, y, z, cmap=CUSTOM_CMAP, edgecolor='k')
+    
+    # Labels and title
+    ax.set_xlabel(feature1)
+    ax.set_ylabel(feature2)
+    ax.set_zlabel('Sigmoid Output')
+    ax.set_title('Sigmoid Function Surface')
+    
+    fig.colorbar(surface, ax=ax, shrink=0.5, aspect=5)
+    plt.show()
 
 def main():
     """Main function to run the pipeline."""
@@ -384,11 +456,15 @@ def main():
         
         # Define search space using range()
         profit_margins = [x / 1000 for x in range(20, 40, 1)]
-        future_windows = list(range(3, 30, 1)) 
+        future_windows = list(range(3, 40, 1)) 
 
         
         # Perform grid search
-        best_params = grid_search(df, profit_margins, future_windows)
+        best_params, weights = grid_search(df, profit_margins, future_windows)
+
+
+        
+
         logout()
     except Exception as e:
         tb_str = traceback.format_exception(type(e), e, e.__traceback__)
